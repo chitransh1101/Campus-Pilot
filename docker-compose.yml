@@ -1,0 +1,39 @@
+# One command, both services, no Python/Node install needed on the host:
+#   docker compose up --build
+# Then open http://localhost:8080
+#
+# Data (the SQLite database) lives in a named volume ("campuspilot_data")
+# so it survives `docker compose down` / rebuilds — only
+# `docker compose down -v` wipes it.
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - campuspilot_data:/app/data
+    environment:
+      # Set this to a fixed random string (see .env.example) so logged-in
+      # sessions survive a container restart instead of everyone being
+      # signed out every time. Falls back to a random one-off key if unset
+      # — fine for a quick local run, not for anything left running.
+      - SECRET_KEY=${SECRET_KEY:-}
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    environment:
+      # Where the browser should reach the backend. The default below is
+      # correct for running everything on one machine via this compose
+      # file. If you later deploy frontend and backend to two different
+      # public URLs, override this with the backend's real public URL.
+      - API_BASE=${API_BASE:-http://localhost:8000}
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  campuspilot_data:

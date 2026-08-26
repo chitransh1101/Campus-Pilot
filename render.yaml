@@ -1,0 +1,44 @@
+# Optional — only used if/when you decide to put this live on the internet
+# via Render (https://render.com), instead of just running it locally with
+# docker compose. See README.md → "Going live later" for the full walkthrough.
+#
+# This defines two separate web services from the same Dockerfiles used
+# locally — Render builds and runs each one from its own Dockerfile.
+#
+# IMPORTANT — free-tier data persistence: Render's free plan does NOT
+# support persistent disks (confirmed against Render's own docs), and free
+# services spin down after 15 minutes idle — so on the `free` plan below,
+# the SQLite database resets (back to the seeded demo data) every time the
+# service redeploys or spins down from inactivity. That's fine for showing
+# someone a live demo link; it is NOT fine for anyone actually relying on
+# data staying put. To make data durable: upgrade `backend` to at least the
+# `starter` plan and uncomment the `disk:` block below.
+services:
+  - type: web
+    name: campuspilot-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+    # disk:                          # requires plan: starter or higher
+    #   name: campuspilot-data
+    #   mountPath: /app/data
+    #   sizeGB: 1
+
+  - type: web
+    name: campuspilot-frontend
+    runtime: docker
+    dockerfilePath: ./frontend/Dockerfile
+    dockerContext: ./frontend
+    plan: free
+    envVars:
+      # Render assigns the backend's public URL only after that service is
+      # created, so this can't be auto-filled here — after both services
+      # deploy, copy the backend's URL (shown on its Render dashboard page,
+      # looks like https://campuspilot-backend-xxxx.onrender.com) and set
+      # it as this variable on the frontend service, then redeploy it.
+      - key: API_BASE
+        sync: false
