@@ -564,8 +564,8 @@ const api = {
       form.append("file", photoFile, photoFile.name);
       return apiFetch("/teacher/attendance/ocr", { method: "POST", body: form });
     },
-    async markAttendance(courseId, courseLabel, records, actor) {
-      const session = await apiFetch("/teacher/attendance", { method: "POST", body: { courseId, courseLabel, records } });
+    async markAttendance(courseId, courseLabel, records, actor, date) {
+      const session = await apiFetch("/teacher/attendance", { method: "POST", body: { courseId, courseLabel, records, date } });
       pushAudit({ actor: actor.name, actorRole: "teacher", action: "Attendance published", detail: `${courseLabel} · ${records.filter((r) => r.present).length}/${records.length} present` });
       pushNotification({ toRole: "student", title: "Attendance updated", body: `${courseLabel} attendance was just marked.` });
       realtimeBus.emit("attendance:update", session);
@@ -2023,8 +2023,14 @@ function TeacherOverview({ user, courses, roster, recentAudit, reportSummary, pe
   );
 }
 
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function AttendanceOCR({ courses, selectedCourse, setSelectedCourse, roster, user, showToast }) {
   const [mode, setMode] = useState("ocr");
+  const [sessionDate, setSessionDate] = useState(todayIso);
   const [photoName, setPhotoName] = useState("");
   const [stage, setStage] = useState("idle");
   const [detected, setDetected] = useState(null);
@@ -2057,69 +2063,93 @@ function AttendanceOCR({ courses, selectedCourse, setSelectedCourse, roster, use
 
   async function publish(records) {
     if (!course) return showToast("Pick a course first", "warn");
-    await api.teacher.markAttendance(course.id, `${course.code} — ${course.name}`, records, user);
+    await api.teacher.markAttendance(course.id, `${course.code} — ${course.name}`, records, user, sessionDate || todayIso());
     showToast("Attendance published");
     setDetected(null); setOcrMeta(null); setStage("idle"); setPhotoName(""); if (fileRef.current) fileRef.current.value = "";
   }
 
   return (
-    <Card title="Mark Attendance" actions={
-      courses.length
-        ? <select value={selectedCourse || ""} onChange={(e) => setSelectedCourse(e.target.value)} className="cp-select">
-            {courses.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
-          </select>
-        : <span className="cp-muted">No courses assigned</span>}>
-      <Tabs tabs={[{ key: "ocr", label: "Photo (OCR)" }, { key: "manual", label: "Manual" }]} active={mode} onChange={setMode} />
-      {mode === "ocr" && (
-        <div className="cp-ocr-panel">
-          {!detected && stage === "idle" && (
-            <label className="cp-ocr-drop">
-              <Icon name="camera" size={26} />
-              <div><strong>Upload a class photo</strong><span>We'll detect students and pre-fill attendance for you to review.</span></div>
-              <input ref={fileRef} type="file" accept="image/*" onChange={handlePickPhoto} hidden />
-            </label>
-          )}
-          {stage !== "idle" && stage !== "done" && (
-            <div className="cp-ocr-processing">
-              <div className="cp-spinner" />
-              <div className="cp-ocr-steps">
-                <div className={stage === "uploading" ? "is-active" : "is-done"}>Uploading {photoName}…</div>
-                <div className={stage === "detecting" ? "is-active" : stage === "matching" ? "is-done" : ""}>Reading roll numbers &amp; marks…</div>
-                <div className={stage === "matching" ? "is-active" : ""}>Matching against class roster…</div>
-              </div>
+    <Card title="Mark Attendance">
+      <div className="cp-attendance-layout">
+        <div className="cp-attendance-options">
+          <div className="cp-attendance-opt-group">
+            <span className="cp-attendance-opt-label">Mode</span>
+            <div className="cp-attendance-mode-switch">
+              <button type="button" className={"cp-nav-item" + (mode === "ocr" ? " is-active" : "")} onClick={() => setMode("ocr")}>
+                <Icon name="camera" size={15} /> Photo (OCR)
+              </button>
+              <button type="button" className={"cp-nav-item" + (mode === "manual" ? " is-active" : "")} onClick={() => setMode("manual")}>
+                <Icon name="clipboard" size={15} /> Manual
+              </button>
             </div>
-          )}
-          {stage === "done" && detected && (
-            <>
-              {ocrMeta && (
-                <div className={"cp-ocr-source-banner" + (ocrMeta.source === "ocr" ? " cp-ocr-source-banner--real" : " cp-ocr-source-banner--sim")}>
-                  <Icon name={ocrMeta.source === "ocr" ? "check" : "alert"} size={14} />
-                  <span>{ocrMeta.source === "ocr" ? "Read from your photo. " : "Simulated demo data — not read from your photo. "}{ocrMeta.note}</span>
+          </div>
+          <div className="cp-attendance-opt-group">
+            <span className="cp-attendance-opt-label">Course / class</span>
+            {courses.length
+              ? <select value={selectedCourse || ""} onChange={(e) => setSelectedCourse(e.target.value)} className="cp-select">
+                  {courses.map((c) => <option key={c.id} value={c.id}>{c.code} — {c.name}</option>)}
+                </select>
+              : <span className="cp-muted">No courses assigned</span>}
+          </div>
+          <div className="cp-attendance-opt-group">
+            <span className="cp-attendance-opt-label">Date</span>
+            <input type="date" className="cp-select" value={sessionDate} onChange={(e) => setSessionDate(e.target.value)} />
+            <span className="cp-attendance-opt-hint">Defaults to today — change this to backfill an older photo or log a makeup class.</span>
+          </div>
+        </div>
+        <div className="cp-attendance-main">
+          {mode === "ocr" && (
+            <div className="cp-ocr-panel">
+              {!detected && stage === "idle" && (
+                <label className="cp-ocr-drop">
+                  <Icon name="camera" size={26} />
+                  <div><strong>Upload a class photo</strong><span>We'll detect students and pre-fill attendance for you to review.</span></div>
+                  <input ref={fileRef} type="file" accept="image/*" onChange={handlePickPhoto} hidden />
+                </label>
+              )}
+              {stage !== "idle" && stage !== "done" && (
+                <div className="cp-ocr-processing">
+                  <div className="cp-spinner" />
+                  <div className="cp-ocr-steps">
+                    <div className={stage === "uploading" ? "is-active" : "is-done"}>Uploading {photoName}…</div>
+                    <div className={stage === "detecting" ? "is-active" : stage === "matching" ? "is-done" : ""}>Reading roll numbers &amp; marks…</div>
+                    <div className={stage === "matching" ? "is-active" : ""}>Matching against class roster…</div>
+                  </div>
                 </div>
               )}
-              <div className="cp-ocr-summary">Detected {detected.filter((d) => d.present).length} of {detected.length} students present. Review and correct before publishing.</div>
+              {stage === "done" && detected && (
+                <>
+                  {ocrMeta && (
+                    <div className={"cp-ocr-source-banner" + (ocrMeta.source === "ocr" ? " cp-ocr-source-banner--real" : " cp-ocr-source-banner--sim")}>
+                      <Icon name={ocrMeta.source === "ocr" ? "check" : "alert"} size={14} />
+                      <span>{ocrMeta.source === "ocr" ? "Read from your photo. " : "Simulated demo data — not read from your photo. "}{ocrMeta.note}</span>
+                    </div>
+                  )}
+                  <div className="cp-ocr-summary">Detected {detected.filter((d) => d.present).length} of {detected.length} students present for {sessionDate}. Review and correct before publishing.</div>
+                  <DataTable columns={[
+                    { key: "name", label: "Student" }, { key: "idLabel", label: "ID" },
+                    { key: "confidence", label: "Confidence", render: (r) => <Badge tone={r.confidence > 85 ? "green" : "amber"}>{r.confidence}%</Badge> },
+                    { key: "present", label: "Present", render: (r) => <Switch checked={r.present} onChange={() => toggleDetected(r.studentId)} /> },
+                  ]} rows={detected} />
+                  <div className="cp-ocr-actions">
+                    <Pill tone="ghost" onClick={() => { setDetected(null); setStage("idle"); setPhotoName(""); }}>Retake / cancel</Pill>
+                    <Pill tone="solid" onClick={() => publish(detected.map((d) => ({ studentId: d.studentId, present: d.present })))}>Confirm &amp; publish</Pill>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          {mode === "manual" && (
+            <>
               <DataTable columns={[
                 { key: "name", label: "Student" }, { key: "idLabel", label: "ID" },
-                { key: "confidence", label: "Confidence", render: (r) => <Badge tone={r.confidence > 85 ? "green" : "amber"}>{r.confidence}%</Badge> },
-                { key: "present", label: "Present", render: (r) => <Switch checked={r.present} onChange={() => toggleDetected(r.studentId)} /> },
-              ]} rows={detected} />
-              <div className="cp-ocr-actions">
-                <Pill tone="ghost" onClick={() => { setDetected(null); setStage("idle"); setPhotoName(""); }}>Retake / cancel</Pill>
-                <Pill tone="solid" onClick={() => publish(detected.map((d) => ({ studentId: d.studentId, present: d.present })))}>Confirm &amp; publish</Pill>
-              </div>
+                { key: "present", label: "Present", render: (r) => <Switch checked={r.present} onChange={() => toggleManual(r.id)} /> },
+              ]} rows={manual} />
+              <div className="cp-ocr-actions"><Pill tone="solid" onClick={() => publish(manual.map((m) => ({ studentId: m.id, present: m.present })))}>Publish attendance for {sessionDate}</Pill></div>
             </>
           )}
         </div>
-      )}
-      {mode === "manual" && (
-        <>
-          <DataTable columns={[
-            { key: "name", label: "Student" }, { key: "idLabel", label: "ID" },
-            { key: "present", label: "Present", render: (r) => <Switch checked={r.present} onChange={() => toggleManual(r.id)} /> },
-          ]} rows={manual} />
-          <div className="cp-ocr-actions"><Pill tone="solid" onClick={() => publish(manual.map((m) => ({ studentId: m.id, present: m.present })))}>Publish attendance</Pill></div>
-        </>
-      )}
+      </div>
     </Card>
   );
 }
@@ -3647,6 +3677,22 @@ function Style() {
       .cp-select{ font-size:12.5px; padding:8px 10px; border-radius:10px; border:1.4px solid var(--surface-border); background:var(--surface); color:var(--ink); max-width:100%; }
       .cp-inline-controls{ display:flex; gap:8px; flex-wrap:wrap; }
       .cp-score-input{ width:70px; padding:6px 8px; border-radius:8px; border:1.4px solid var(--surface-border); background:var(--surface); font-size:12.5px; color:var(--ink); }
+
+      .cp-attendance-layout{ display:flex; gap:20px; align-items:flex-start; }
+      .cp-attendance-options{ --sb-x:10px; width:200px; flex-shrink:0; display:flex; flex-direction:column; gap:16px;
+        padding:14px; border-radius:14px; background:var(--surface); border:1px solid var(--surface-border); }
+      .cp-attendance-opt-group{ display:flex; flex-direction:column; gap:6px; }
+      .cp-attendance-opt-label{ font-size:10px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--ink-faint); }
+      .cp-attendance-opt-hint{ font-size:10.5px; color:var(--ink-faint); line-height:1.4; }
+      .cp-attendance-mode-switch{ display:flex; flex-direction:column; gap:3px; }
+      .cp-attendance-mode-switch .cp-nav-item{ font-size:12.5px; border:1px solid transparent; }
+      .cp-attendance-mode-switch .cp-nav-item:hover{ transform:none; }
+      .cp-attendance-main{ flex:1; min-width:0; }
+      @media (max-width: 720px){
+        .cp-attendance-layout{ flex-direction:column; }
+        .cp-attendance-options{ width:100%; flex-direction:row; flex-wrap:wrap; gap:14px; }
+        .cp-attendance-opt-group{ flex:1; min-width:150px; }
+      }
 
       .cp-ocr-panel{ display:flex; flex-direction:column; gap:14px; }
       .cp-ocr-drop{ display:flex; align-items:center; gap:14px; padding:22px; border:1.6px dashed var(--surface-border); border-radius:14px; cursor:pointer; color:var(--ink-soft); background:var(--surface); flex-wrap:wrap; }
