@@ -21,6 +21,11 @@ class MarkAttendanceRequest(BaseModel):
     course_id: str = Field(alias="courseId")
     course_label: str = Field(alias="courseLabel")
     records: List[AttendanceRecordIn]
+    # Optional — lets a teacher record a session for a specific day (e.g.
+    # backfilling yesterday's photo, or a future-dated session) instead of
+    # always defaulting to today. Expected format: "YYYY-MM-DD". Falls back
+    # to today's date server-side if omitted, so older callers still work.
+    date: Optional[str] = None
 
 
 class GradeEntryIn(BaseModel):
