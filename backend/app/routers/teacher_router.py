@@ -119,8 +119,12 @@ async def ocr_process_attendance(file: Optional[UploadFile] = File(None), db: Se
 def mark_attendance(payload: MarkAttendanceRequest, db: Session = Depends(get_db), current_user: dict = Depends(teacher_only)):
     from datetime import date
     me = _me(db, current_user)
+    # Honor a teacher-supplied date (e.g. backfilling a photo taken
+    # yesterday, or a future-dated makeup class) if one was sent; otherwise
+    # keep the old behaviour of stamping today's real date.
+    session_date = (payload.date or "").strip() or date.today().isoformat()
     session = AttendanceSession(course_id=payload.course_id, course_label=payload.course_label,
-                                 date=date.today().isoformat(), marked_by=me.name)
+                                 date=session_date, marked_by=me.name)
     db.add(session)
     db.flush()
     for r in payload.records:
