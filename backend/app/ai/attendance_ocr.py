@@ -57,7 +57,7 @@ def parse_attendance(ocr_results, known_ids=None):
     """
     parsed = []
     pending_roll = None
-    known_upper = {k.upper() for k in known_ids} if known_ids else None
+    known_upper = {re.sub(r"[^A-Za-z0-9]", "", k).upper() for k in known_ids} if known_ids else None
 
     for item in ocr_results:
         text = item["text"].strip()
